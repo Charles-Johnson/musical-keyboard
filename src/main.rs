@@ -26,7 +26,7 @@ static CONFIG: Lazy<(StreamConfig, SampleFormat)> = Lazy::new(|| {
 });
 static CHANNELS: Lazy<usize> = Lazy::new(|| CONFIG.0.channels as usize);
 static SAMPLE_RATE: Lazy<f32> = Lazy::new(|| CONFIG.0.sample_rate.0 as f32);
-static CHANNEL: Lazy<(Sender<(u32, ElementState)>, Receiver<(u32, ElementState)>)> =
+static KEYBOARD_EVENT_CHANNEL: Lazy<(Sender<(u32, ElementState)>, Receiver<(u32, ElementState)>)> =
     Lazy::new(channel::unbounded::<(u32, ElementState)>);
 const MAX_SCANCODE: usize = 64;
 
@@ -43,13 +43,15 @@ static KEY_FREQUENCIES: Lazy<[f32; MAX_SCANCODE]> = Lazy::new(|| {
 static KEYS_PRESSED: Lazy<DashSet<usize>> = Lazy::new(DashSet::<usize>::new);
 
 fn main() {
-    let sample_format = CONFIG.1;
-    let stream = match sample_format {
-        SampleFormat::I16 => create_stream::<i16>(),
-        SampleFormat::U16 => create_stream::<u16>(),
-        SampleFormat::F32 => create_stream::<f32>(),
-    };
-    stream.play().unwrap();
+    // KEYBOARD_EVENT_CHANNEL -> KEYS_PRESSED
+    listen_to_keyboard_event_channel();
+    // KEYS_PRESSED -> sound
+    play_audio_stream();
+    // keyboard event -> KEYBOARD_EVENT_CHANNEL
+    run_event_loop();
+}
+
+fn run_event_loop() {
     let event_loop = EventLoop::new();
     event_loop.run(move |event: Event<_>, _, cf: &mut ControlFlow| {
         if let Event::DeviceEvent {
@@ -61,16 +63,26 @@ fn main() {
         } = event
         {
             if (scancode as usize) < MAX_SCANCODE {
-                task::spawn(CHANNEL.0.send((scancode, state)));
+                task::spawn(KEYBOARD_EVENT_CHANNEL.0.send((scancode, state)));
             }
             *cf = ControlFlow::Wait;
         }
     });
 }
 
-fn create_stream<T: Sample>() -> Stream {
+fn play_audio_stream() {
+    let sample_format = CONFIG.1;
+    let stream = match sample_format {
+        SampleFormat::I16 => create_stream::<i16>(),
+        SampleFormat::U16 => create_stream::<u16>(),
+        SampleFormat::F32 => create_stream::<f32>(),
+    };
+    stream.play().unwrap();
+}
+
+fn listen_to_keyboard_event_channel() {
     task::spawn(async {
-        while let Ok((scancode, element_state)) = CHANNEL.1.recv().await {
+        while let Ok((scancode, element_state)) = KEYBOARD_EVENT_CHANNEL.1.recv().await {
             match element_state {
                 ElementState::Pressed => {
                     KEYS_PRESSED.insert(scancode as usize);
@@ -81,6 +93,9 @@ fn create_stream<T: Sample>() -> Stream {
             }
         }
     });
+}
+
+fn create_stream<T: Sample>() -> Stream {
     DEVICE
         .build_output_stream(
             &CONFIG.0,
