@@ -5,6 +5,13 @@ notes at the same time just by using a computer keyboard
 I already had. Basic music toys we had only played one 
 note at a time so it was an excuse for a side project.
 
+# Setup
+
+For those new to Rust: download the toolchain [here](https://rustup.rs)
+
+Run the program: `cargo run --release` (debug profile can cause lag in
+generating stream)
+
 # Dependencies
 
 - The `cpal` crate is used to play audio streams which
